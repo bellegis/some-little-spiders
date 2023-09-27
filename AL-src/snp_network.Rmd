@@ -1,0 +1,199 @@
+---
+title: "snp_network"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+
+```{r}
+# Load required libraries
+library(dplyr)
+
+# Read the CSV file
+data <- read.csv("c90p3m32_R1.unlinked_snps.csv", header = TRUE)
+
+# Create an empty matrix to store the results
+num_shared_snps <- matrix(0, nrow = nrow(data), ncol = nrow(data))
+rownames(num_shared_snps) <- data$sample_number
+colnames(num_shared_snps) <- data$sample_number
+
+# Calculate the number of shared SNPs between each pair of samples
+for (i in 1:(nrow(data) - 1)) {
+  for (j in (i + 1):nrow(data)) {
+    snp_alignment_1 <- unlist(strsplit(as.character(data[i, "snp_alignment"]), ""))
+    snp_alignment_2 <- unlist(strsplit(as.character(data[j, "snp_alignment"]), ""))
+    num_shared_snps[i, j] <- sum(snp_alignment_1 == snp_alignment_2)
+    num_shared_snps[j, i] <- num_shared_snps[i, j]
+  }
+}
+
+# Convert the matrix to a data frame
+result <- as.matrix(num_shared_snps)
+
+library(reshape2)
+resultCOL <- setNames(melt(result), c('loc1', 'loc2', 'sharedSNP'))
+
+# Print the result
+print(result)
+
+data.frame(result)
+write.csv(result, "shared_snp_matrix.csv")
+
+```
+
+
+
+```{r}
+# Install and load required packages
+library(ggplot2)
+
+data <- read.csv("c90p3m32_R1.unlinked_snps.csv", header = TRUE)
+coods <- read.csv("snp_coords.csv", header = TRUE)
+
+data
+
+# Generate coordinates for the nodes
+coordinates <- data.frame(
+  node = c(coods$VOUCHER),
+  x = c(coods$LONG),
+  y = c(coods$LAT)
+)
+
+coordinates$x <- as.numeric(coordinates$x)
+coordinates$y <- as.numeric(coordinates$y)
+```
+
+
+
+```{r}
+
+resultCOL <- subset(resultCOL, sharedSNP != 0)
+# Order dataframe by col1 in descending order
+resultCOL <- resultCOL[order(-resultCOL$sharedSNP), ]
+
+resultCOL
+
+
+# Plot histogram of values
+hist(resultCOL$sharedSNP, 
+     breaks = 50,  # Number of bins (adjust as needed)
+     col = "blue",        # Bar color
+     xlab = "Values",     # X-axis label
+     ylab = "Frequency",  # Y-axis label
+     main = "Distribution Histogram")  # Title
+
+
+```
+
+
+```{r}
+library(ggplot2)
+library(maps)
+
+coods <- read.csv("snp_coords.csv", header = TRUE)
+
+# Generate coordinates for the nodes
+coordinates <- data.frame(
+  node = c(coods$VOUCHER),
+  x = c(coods$LONG),
+  y = c(coods$LAT)
+)
+
+#cities = coordinates, node = city, x = long, y = lat
+#flows = resultCOL, loc1 = from, loc2 = to, flow = sharedSNP
+
+
+#connections <- merge(flows, cities, by.x = "from", by.y = "city", all.x = TRUE)
+#connections <- merge(connections, cities, by.x = "to", by.y = "city", all.x = TRUE)
+
+connections <- merge(resultCOL, coordinates, by.x = "loc1", by.y = "node", all.x = TRUE)
+connections <- merge(connections, coordinates, by.x = "loc2", by.y = "node", all.x = TRUE)
+connections
+
+
+world_map <- map_data("world")
+xlim <- c(-117, -104) # Longitude range
+ylim <- c(42, 29)    # Latitude range
+
+resultCOL$sharedSNP <- as.numeric(resultCOL$sharedSNP)
+
+
+library("ggplot2")
+library("sf")
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("ggspatial")
+theme_set(theme_bw())
+
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+
+ ggplot(data = world) +
+        geom_sf() +
+        coord_sf(xlim = xlim, ylim = ylim) +
+        geom_segment(data = connections,
+               aes(x = x.x, y = y.x, xend = x.y, yend = y.y, color = (sharedSNP)),
+               size = 0.1, alpha = 1) +
+        scale_color_gradient(low = "white", high = "blue") +
+        geom_jitter(data = coordinates, aes(x = x, y = y), color = "red", size = 3) +
+        labs(size = "sharedSNP") +
+        theme_minimal()
+```
+
+
+Only keeping segments over 1200 shared SNPs
+```{r}
+
+connections1200 <- merge(resultCOL, coordinates, by.x = "loc1", by.y = "node", all.x = TRUE)
+connections1200 <- merge(connections, coordinates, by.x = "loc2", by.y = "node", all.x = TRUE)
+
+connections1200 <- subset(connections1200, sharedSNP > 1200)
+
+
+world_map <- map_data("world")
+xlim <- c(-117, -104) # Longitude range
+ylim <- c(42, 29)    # Latitude range
+
+
+library("ggplot2")
+library("sf")
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("ggspatial")
+theme_set(theme_bw())
+
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+
+ plot <- ggplot(data = world) +
+        geom_sf() +
+        coord_sf(xlim = xlim, ylim = ylim) +
+        geom_segment(data = connections1200,
+               aes(x = x.x, y = y.x, xend = x.y, yend = y.y, color = (sharedSNP)),
+               size = 0.5, alpha = 1) +
+        scale_color_gradient(low = "yellow", high = "blue") +
+        geom_jitter(data = coordinates, aes(x = x, y = y), color = "black", size = 3) +
+        labs(size = "sharedSNP") +
+        theme_minimal()
+
+ 
+plot
+ #ggsave("opi_plot.pdf", width = 32, height = 16, units = "cm", dpi = 300)
+ 
+ 
+#xlim <- c(-117, -104) # Longitude range
+#ylim <- c(42, 29) 
+ 
+```
